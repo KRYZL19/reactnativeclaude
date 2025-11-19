@@ -5,8 +5,8 @@
  * Swipe links/rechts, um das gewünschte Tor zu wählen.
  */
 
-import React, { useRef, useState, useMemo, useCallback, Suspense } from 'react';
-import { View, Text, PanResponder, StyleSheet, Pressable } from 'react-native';
+import React, { useRef, useState, useMemo, useCallback, Suspense, useEffect } from 'react';
+import { View, Text, PanResponder, StyleSheet, Pressable, Animated } from 'react-native';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 
@@ -21,6 +21,14 @@ interface GateOption {
   value: number;
   color: string;
   label: string;
+}
+
+interface ScorePopup {
+  id: number;
+  value: string;
+  color: string;
+  x: number;
+  y: number;
 }
 
 interface GateData {
@@ -401,6 +409,56 @@ function EndScreen({ score, onRestart }: EndScreenProps) {
 }
 
 // ============================================================================
+// SCORE POPUP COMPONENT
+// ============================================================================
+
+interface ScorePopupDisplayProps {
+  popup: ScorePopup;
+  onComplete: (id: number) => void;
+}
+
+function ScorePopupDisplay({ popup, onComplete }: ScorePopupDisplayProps) {
+  const opacity = useRef(new Animated.Value(1)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // Animiere das Popup nach oben und fade out
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: 1500,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: -80,
+        duration: 1500,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      onComplete(popup.id);
+    });
+  }, []);
+
+  return (
+    <Animated.View
+      style={[
+        styles.scorePopup,
+        {
+          left: popup.x,
+          top: popup.y,
+          opacity,
+          transform: [{ translateY }],
+        },
+      ]}
+    >
+      <Text style={[styles.scorePopupText, { color: popup.color }]}>
+        {popup.value}
+      </Text>
+    </Animated.View>
+  );
+}
+
+// ============================================================================
 // HAUPTSPIEL-KOMPONENTE
 // ============================================================================
 
@@ -411,6 +469,8 @@ export default function NumberRunner() {
   const [playerZ, setPlayerZ] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const [finalScore, setFinalScore] = useState(0);
+  const [scorePopups, setScorePopups] = useState<ScorePopup[]>([]);
+  const popupIdCounter = useRef(0);
 
   // Tore generieren (nur einmal beim Mount)
   const gates = useMemo<GateData[]>(() => {
@@ -430,6 +490,11 @@ export default function NumberRunner() {
   // Verarbeitete Tore tracken
   const processedGates = useRef(new Set<number>());
 
+  // Helper: Remove completed popup
+  const removePopup = useCallback((id: number) => {
+    setScorePopups((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
   // Kollisionserkennung
   const checkCollision = useCallback(
     (currentZ: number) => {
@@ -442,9 +507,30 @@ export default function NumberRunner() {
           // Gewählte Option basierend auf aktueller Lane
           const selectedOption = targetLane === 0 ? gate.leftOption : gate.rightOption;
 
+          // Alten Wert speichern
+          const oldValue = playerValue;
+
           // Neuen Wert berechnen
           const newValue = calculateNewValue(playerValue, selectedOption);
           setPlayerValue(newValue);
+
+          // Score Popup erstellen - positioniert an der Gate-Position
+          const scoreDiff = newValue - oldValue;
+          const popupText = scoreDiff > 0 ? `+${scoreDiff}` : `${scoreDiff}`;
+
+          // Position: Links oder rechts je nach Lane, und etwa in der Mitte-oben des Bildschirms
+          const screenX = targetLane === 0 ? 80 : window.innerWidth - 120;
+          const screenY = window.innerHeight * 0.3;
+
+          const newPopup: ScorePopup = {
+            id: popupIdCounter.current++,
+            value: popupText,
+            color: selectedOption.color,
+            x: screenX,
+            y: screenY,
+          };
+
+          setScorePopups((prev) => [...prev, newPopup]);
 
           // Prüfen ob letztes Tor
           if (gate.id === GAME_CONFIG.totalGates - 1) {
@@ -495,7 +581,9 @@ export default function NumberRunner() {
     setPlayerZ(0);
     setGameOver(false);
     setFinalScore(0);
+    setScorePopups([]);
     processedGates.current.clear();
+    popupIdCounter.current = 0;
     // Force re-render mit neuen Gates
     window.location.reload();
   };
@@ -509,7 +597,7 @@ export default function NumberRunner() {
   const nextGate = gates.find((gate) => gate.zPosition - playerZ > 0 && gate.zPosition - playerZ < GAME_CONFIG.gateSpacing + 5);
 
   return (
-    <View style={styles.container} {...panResponder.panHandlers}>
+    <View style={styles.container}>
       {/* 3D Canvas */}
       <Canvas
         style={styles.canvas}
@@ -531,6 +619,9 @@ export default function NumberRunner() {
           />
         </Suspense>
       </Canvas>
+
+      {/* Touchable Overlay for Swipe Gestures */}
+      <View style={styles.touchOverlay} {...panResponder.panHandlers} />
 
       {/* UI Overlay */}
       <View style={styles.uiOverlay}>
@@ -586,6 +677,15 @@ export default function NumberRunner() {
             </View>
           </View>
         )}
+
+        {/* Score Popups - erscheinen an den Tor-Positionen */}
+        {scorePopups.map((popup) => (
+          <ScorePopupDisplay
+            key={popup.id}
+            popup={popup}
+            onComplete={removePopup}
+          />
+        ))}
       </View>
     </View>
   );
@@ -613,6 +713,14 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
   },
+  touchOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+  },
   uiOverlay: {
     position: 'absolute',
     top: 0,
@@ -620,6 +728,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     pointerEvents: 'none',
+    zIndex: 20,
   },
   scoreContainer: {
     position: 'absolute',
@@ -764,5 +873,27 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 22,
     fontWeight: 'bold',
+  },
+  scorePopup: {
+    position: 'absolute',
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 25,
+    borderWidth: 3,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  scorePopupText: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.9)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
   },
 });
