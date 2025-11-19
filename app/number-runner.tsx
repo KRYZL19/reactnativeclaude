@@ -480,8 +480,8 @@ export default function NumberRunner() {
       generatedGates.push({
         id: i,
         zPosition: (i + 1) * GAME_CONFIG.gateSpacing,
-        leftOption: options.left,
-        rightOption: options.right,
+        leftOption: options.right, // Vertauscht: rechte Option für linkes Tor
+        rightOption: options.left,  // Vertauscht: linke Option für rechtes Tor
       });
     }
     return generatedGates;
@@ -518,9 +518,9 @@ export default function NumberRunner() {
           const scoreDiff = newValue - oldValue;
           const popupText = scoreDiff > 0 ? `+${scoreDiff}` : `${scoreDiff}`;
 
-          // Position: Links oder rechts je nach Lane, und etwa in der Mitte-oben des Bildschirms
-          const screenX = targetLane === 0 ? 80 : window.innerWidth - 120;
-          const screenY = window.innerHeight * 0.3;
+          // Position: Links oder rechts genau bei den Toren, nicht in der Mitte
+          const screenX = targetLane === 0 ? 40 : window.innerWidth - 90;
+          const screenY = window.innerHeight * 0.35;
 
           const newPopup: ScorePopup = {
             id: popupIdCounter.current++,
@@ -564,9 +564,9 @@ export default function NumberRunner() {
           // Swipe nach links oder rechts
           if (Math.abs(gestureState.dx) > 30) {
             if (gestureState.dx > 0) {
-              setTargetLane(1); // Rechts
+              setTargetLane(0); // Links (invertiert)
             } else {
-              setTargetLane(0); // Links
+              setTargetLane(1); // Rechts (invertiert)
             }
           }
         },
